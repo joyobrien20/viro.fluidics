@@ -54,6 +54,12 @@ category_proportions <- prop.table(category_counts)
 print(category_proportions)
 ```
 
+# Calculate the time between germination and lysis = "death interval"
+```{r}
+fluid <- fluid %>%
+  mutate(death.interval = lyse.time - germ.time)
+```
+
 # Distributions of continuous measures
 ```{r}
 # Germination time (minutes)
@@ -88,6 +94,15 @@ hist(fluid$cell.size,
      col = "lightblue", 
      border = "blue")
 
+# Death interval 
+summary(fluid$death.interval)
+sd(fluid$death.interval, na.rm = TRUE)
+hist(fluid$death.interval, 
+     breaks = 20, # Adjust the number of bins
+     main = "Histogram of death interval", 
+     xlab = "Death interval (min)", 
+     col = "orange", 
+     border = "brown")
 
 
 ```
