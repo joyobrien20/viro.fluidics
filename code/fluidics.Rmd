@@ -24,9 +24,9 @@ setwd("~/GitHub/viro.fluidics/")
 require("png")
 require("dplyr")
 require("grid")
-require("plyr")
-require("tidyverse")
-require("bbmle")
+#require("plyr")
+#require("tidyverse")
+#require("bbmle")
 ```
 
 # Load data
@@ -42,29 +42,114 @@ unique_categories <- unique(fluid$spore.fate)
 print(unique_categories)
 ```
 
-# Proportions of spore.fate
-```{r}
-# Get the count of each category
-category_counts <- table(fluid$spore.fate)
-
-# Calculate proportions
-category_proportions <- prop.table(category_counts)
-
-# View the proportions
-print(category_proportions)
-```
-
-# Calculate the time between germination and lysis = "death interval"
+# Create new variable: time between germination and lysis = "death interval"
 ```{r}
 fluid <- fluid %>%
   mutate(death.interval = lyse.time - germ.time)
 ```
 
+# Remove "inconclusive" observation from spore.fate
+```{r}
+fluid <- fluid %>%
+  filter(spore.fate != "Inconclusive")
+```
+
+# Proportions of spore.fate
+```{r}
+# Create count table
+fate.count.table <- table(fluid$spore.fate, fluid$treat)
+
+# View the table
+fate.count.table 
+
+# Create proportion table
+fate.prop.table <- prop.table(spore.fate.table, margin = 2)
+
+# View the table
+fate.prop.table
+
+# Reorder
+fate.prop.table <- fate.prop.table[c("Divided", "Stayed", "Lysed"), ]
+```
+
+# Contingency test of spore.fate
+```{r}
+# Overall Fisher's exact test
+fisher.fate <- fisher.test(spore.fate.table)
+fisher.fate # p-value < 2.2e-16
+
+# Pairwise Fisher's exact test
+
+# Initialize vectors to store results
+spore_fate_categories <- rownames(spore_fate_table)
+pairwise_p_values <- c()
+
+# Loop through each spore.fate category
+for (category in spore_fate_categories) {
+  # Create a 2x2 table: Current category vs. all other categories
+  binary_table <- rbind(
+    c(spore_fate_table[category, "control"], sum(spore_fate_table[, "control"]) - spore_fate_table[category, "control"]),
+    c(spore_fate_table[category, "infect"], sum(spore_fate_table[, "infect"]) - spore_fate_table[category, "infect"])
+  )
+  
+  # Perform Fisher's exact test
+  test_result <- fisher.test(binary_table)
+  
+  # Store the p-value
+  pairwise_p_values <- c(pairwise_p_values, test_result$p.value)
+}
+
+# Adjust p-values using Benjamini-Hochberg correction
+adjusted_p_values <- p.adjust(pairwise_p_values, method = "BH")
+
+# Combine results into a data frame
+results <- data.frame(
+  spore_fate = spore_fate_categories,
+  p_value = pairwise_p_values,
+  adjusted_p_value = adjusted_p_values
+)
+
+# View the results
+results
+
+#  spore_fate      p_value    adjusted_p_value
+#   Divided    8.899003e-22     1.334850e-21
+#   Lysed      1.057010e-31     3.171031e-31
+#   Stayed     1.342470e-03     1.342470e-03
+```
+
+# Contingency bar plot
+```{r}
+categories <- c("Divided", "Stayed", "Lysed")
+control.prop <- fate.prop.table[,1]
+infect.prop <- fate.prop.table[,2]
+
+# Combine data into a matrix for plotting
+prop.data <- rbind(control.prop, infect.prop)
+
+# Plot settings
+barplot(
+  prop.data,
+  beside = TRUE,
+  col = c("skyblue", "salmon"),
+  names.arg = categories,
+  legend.text = c("Unifected", "Infected"),
+  #args.legend = list(x = "topright", bty = "n"),
+  args.legend = list(x = "top", bty = "n"),
+  ylim = c(0, 1),
+  ylab = "Proportion",
+  xlab = "Spore Fate",
+  las = 1)  # Rotate y-axis tick labels)
+  
+abline(h = 0, col = "black", lwd = 1.5)
+#  main = "Proportion of Spore Fate by Treatment"
+```
+
 # Distributions of continuous measures
 ```{r}
 # Germination time (minutes)
-summary(fluid$germ.time)
-sd(fluid$germ.time, na.rm = TRUE)
+#summary(fluid$germ.time)
+#sd(fluid$germ.time, na.rm = TRUE)
 hist(fluid$germ.time, 
      breaks = 20, # Adjust the number of bins
      main = "Histogram of germination time", 
@@ -107,98 +192,443 @@ hist(fluid$death.interval,
 
 ```
 
-
-
-
-# Convert pixels into OD using standard curve
 ```{r}
-pix <- read.csv("data/dose.response/rpf.pixels.csv", header = TRUE, sep = ",")
-pix2 <- pix %>%
-  mutate(pixels, log.pixels = log10(pixels))
-pix3 <- pix2 %>%
-  mutate(log.pixels, log.od = fit1$coefficients[1] + fit1$coefficients[2]*log.pixels)
-pix4 <- pix3 %>%
-  mutate(log.od, od = 10^log.od)
+# Subset data for control and infect
+cont.germ <- fluid$germ.time[fluid$treat == "control"]
+infect.germ <- fluid$germ.time[fluid$treat == "infect"]
+
+# Define the range of the x-axis
+x_range <- range(c(cont.germ, infect.germ), na.rm = TRUE)
+
+hist(
+  cont.germ,
+  breaks = 20,  # Adjust the number of bins as needed
+  col = rgb(0, 0, 1, 0.5),  # Semi-transparent blue
+  xlim = x_range,
+  ylim = c(0, 0.01),
+  xlab = "Germination time (min)",
+  ylab = "Density",
+  main = "",
+  freq = FALSE,
+  border = "blue",
+  las = 1
+)
+
+# Add the second histogram
+hist(
+  infect.germ,
+  breaks = 20,  # Match the number of bins with the first histogram
+  col = rgb(1, 0, 0, 0.25),  # Semi-transparent red
+  add = TRUE,  # Overlay this histogram on the existing plot
+  border = "red",
+  freq = FALSE
+)
+
+# Add the density curve for the first vector
+#lines(density(cont.germ, na.rm = TRUE, bw = 50), col = "blue", lwd = 2)
+lines(density(cont.germ[cont.germ > 5], 
+          na.rm = TRUE, bw = 50), col = "blue", lwd = 2)
+
+# Add the density curve for the second vector
+lines(density(infect.germ[infect.germ > 5], 
+          na.rm = TRUE, bw = 50), col = "red", lwd = 2)
+
+
+# Add a legend to distinguish the histograms
+legend(
+  x = "top",  # Positions the legend at the top middle
+  legend = c("Uninfected", "Infected"),
+  fill = c(rgb(0, 0, 1, 0.5), rgb(1, 0, 0, 0.25)),
+  border = c("blue", "red"),
+  bty = "n",  # Removes the box around the legend
+  horiz = TRUE  # Makes the legend horizontal for better alignment
+)
+
+
+# Kolmogorov-Smirnov test
+ks.germ <- ks.test(cont.germ, infect.germ)
+print(ks.germ)
 ```
-          
+
+
+
 ```{r}
-media <- filter(pix4, cell == "no") %>%
-  dplyr::summarise(mean.med = mean(od))
+# Load required libraries
+if (!requireNamespace("evd", quietly = TRUE)) install.packages("evd")
+if (!requireNamespace("bbmle", quietly = TRUE)) install.packages("bbmle")
+library(evd)
+library(bbmle)
 
-# subtract media-only from all wells containing cells
-cells <- filter(pix4, cell == "yes") %>%
-  mutate(cells, corr.od = od - 0.3720713)
+# Input the dataset (replace this with your actual data or read from a file)
+data <- read.table(header = TRUE, text = "
+treat germ
+infect 70
+infect 26
+infect 19
+infect 68
+infect 19
+infect 194
+infect 19
+infect 195
+infect 23
+infect 48
+infect 24
+infect 24
+infect 20
+infect 12
+infect 42
+infect 6
+infect 36
+infect 61
+infect 18
+infect 21
+infect 149
+infect 88
+infect 44
+infect NA
+infect 52
+infect 60
+infect 35
+infect 271
+infect 20
+infect 31
+infect 103
+infect 88
+infect 21
+infect 24
+infect 108
+infect 22
+infect 102
+infect 16
+infect 50
+infect 105
+infect 84
+infect 176
+infect 14
+infect 39
+infect 33
+infect 23
+infect 17
+infect 27
+infect 39
+infect 31
+infect 32
+infect 20
+infect 21
+infect 153
+infect 49
+infect 49
+infect 203
+infect 33
+infect 24
+infect 64
+infect 31
+infect 28
+infect 26
+infect 120
+infect 24
+infect NA
+infect 65
+infect 30
+infect 28
+infect 25
+infect 119
+infect 24
+infect NA
+infect 23
+infect 15
+infect 19
+infect 366
+infect 35
+infect 73
+infect 67
+infect 48
+infect 57
+infect 49
+infect 52
+infect 15
+infect 21
+infect 380
+infect 107
+infect 111
+infect 24
+infect 352
+infect NA
+infect 86
+infect 31
+infect 21
+infect 201
+infect 23
+infect 32
+control 84
+control NA
+control NA
+control NA
+control 165
+control NA
+control 30
+control NA
+control 183
+control NA
+control 4
+control 44
+control 30
+control 19
+control 12
+control 6
+control 76
+control 4
+control 90
+control NA
+control 4
+control 165
+control 188
+control 30
+control 32
+control 128
+control 39
+control 36
+control 126
+control 19
+control 159
+control 98
+control NA
+control 48
+control 103
+control 4
+control 20
+control 43
+control 109
+control 102
+control 7
+control NA
+control 140
+control 64
+control 36
+control 116
+control 79
+control 20
+control 39
+control 32
+control 139
+control 28
+control NA
+control 53
+control 9
+control 25
+control 54
+control 10
+control 41
+control 66
+control 188
+control 38
+control 118
+control 52
+control 55
+control NA
+control 101
+control 35
+control 12
+control 173
+control 211
+control 5
+control 25
+control 231
+control 149
+control NA
+control 217
+control 134
+control 50
+control 189
+control 70
+control 117
+")
 
-cells <- filter(cells, corr.od < "2.2")
+# Remove rows with NA values
+data <- na.omit(data)
+
+gev_likelihood_treatment <- function(shape, location, scale, treat_shape = 0, treat_location = 0, treat_scale = 0) {
+  # Apply treatment effects
+  data$treat_effect <- ifelse(data$treat == "infect", 1, 0)
+  shape_eff <- shape + treat_shape * data$treat_effect
+  location_eff <- location + treat_location * data$treat_effect
+  scale_eff <- scale + treat_scale * data$treat_effect
+  
+  # Validate parameters element-wise
+  if (any(scale_eff <= 0)) {
+    print("Invalid: Scale must be > 0")
+    return(Inf)
+  }
+  
+  max_germ <- max(data$germ, na.rm = TRUE)
+  if (any(shape_eff < 0 & max_germ > (location_eff + scale_eff / abs(shape_eff)))) {
+    print("Invalid: Tail constraint violated")
+    return(Inf)
+  }
+  
+  # Safely compute log-likelihood
+  ll <- tryCatch({
+    densities <- mapply(
+      function(x, loc, sc, sh) {
+        if (sc <= 0) return(Inf)  # Ensure valid scale
+        dgev(x, shape = sh, loc = loc, scale = sc, log = TRUE)
+      },
+      x = data$germ,
+      loc = location_eff,
+      sc = scale_eff,
+      sh = shape_eff
+    )
+    print(densities)  # Debugging
+    sum(densities, na.rm = TRUE)
+  }, error = function(e) {
+    print("Error in dgev:")
+    print(e)
+    return(Inf)
+  })
+  
+  if (!is.finite(ll)) {
+    print("Likelihood is not finite")
+    return(Inf)
+  }
+  
+  -ll  # Return negative log-likelihood
+}
+
+gev_likelihood_treatment(
+  shape = 0.05,
+  location = 41.5,
+  scale = 20,
+  treat_shape = 0,
+  treat_location = 0,
+  treat_scale = 0
+)
+
+null_model <- mle2(
+  gev_likelihood_treatment,
+  start = list(shape = 0.05, location = 41.5, scale = 20),
+  method = "L-BFGS-B",
+  lower = list(shape = -0.1, location = 10, scale = 5),
+  upper = list(shape = 0.1, location = 300, scale = 50),
+  control = list(trace = 3)
+)
+
+summary(null_model)
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  # Calculate effective parameters
+  shape_eff <- shape + treat_shape * data$treat_effect
+  location_eff <- location + treat_location * data$treat_effect
+  scale_eff <- scale + treat_scale * data$treat_effect
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  # Calculate effective parameters
+  shape_eff <- shape + treat_shape * data$treat_effect
+  location_eff <- location + treat_location * data$treat_effect
+  scale_eff <- scale + treat_scale * data$treat_effect
+  
+    # Enforce scale > 0
+  if (any(scale_eff <= 0)) return(Inf)
+  
+  # Enforce valid ranges for shape and data bounds
+  max_germ <- max(data$germ, na.rm = TRUE)
+  if (any(shape_eff < 0 & max_germ > (location_eff + scale_eff / abs(shape_eff)))) return(Inf)
+  
+  # Compute log-likelihood
+  ll <- sum(dgev(data$germ, shape = shape_eff, loc = location_eff, scale = scale_eff, log = TRUE))
+  -ll # Return negative log-likelihood for minimization
+}
+
+# Fit models with different treatment effects
+models <- list(
+  "Null (No Treatment Effect)" = mle2(
+    gev_likelihood,
+    start = list(shape = 0.1, location = 50, scale = 20),
+    method = "L-BFGS-B",
+    lower = list(shape = -1.5, location = 0, scale = 0.01),
+    upper = list(shape = 1.5, location = max(data$germ, na.rm = TRUE), scale = 100)
+  ),
+  "Shape Affected by Treatment" = mle2(
+    gev_likelihood,
+    start = list(shape = 0.1, location = 50, scale = 20, treat_shape = 0),
+    method = "L-BFGS-B",
+    lower = list(shape = -1.5, location = 0, scale = 0.01, treat_shape = -1),
+    upper = list(shape = 1.5, location = max(data$germ, na.rm = TRUE), scale = 100, treat_shape = 1)
+  ),
+  "Location Affected by Treatment" = mle2(
+    gev_likelihood,
+    start = list(shape = 0.1, location = 50, scale = 20, treat_location = 0),
+    method = "L-BFGS-B",
+    lower = list(shape = -1.5, location = 0, scale = 0.01, treat_location = -50),
+    upper = list(shape = 1.5, location = max(data$germ, na.rm = TRUE), scale = 100, treat_location = 50)
+  ),
+  "Scale Affected by Treatment" = mle2(
+    gev_likelihood,
+    start = list(shape = 0.1, location = 50, scale = 20, treat_scale = 0),
+    method = "L-BFGS-B",
+    lower = list(shape = -1.5, location = 0, scale = 0.01, treat_scale = -50),
+    upper = list(shape = 1.5, location = max(data$germ, na.rm = TRUE), scale = 100, treat_scale = 50)
+  ),
+  "All Parameters Affected by Treatment" = mle2(
+    gev_likelihood,
+    start = list(shape = 0.1, location = 50, scale = 20, treat_shape = 0, treat_location = 0, treat_scale = 0),
+    method = "L-BFGS-B",
+    lower = list(shape = -1.5, location = 0, scale = 0.01, treat_shape = -1, treat_location = -50, treat_scale = -50),
+    upper = list(shape = 1.5, location = max(data$germ, na.rm = TRUE), scale = 100, treat_shape = 1, treat_location = 50, treat_scale = 50)
+  )
+)
+
+
+
+# Compare models using AIC
+aic_values <- AICtab(models, weights = TRUE)
+
+# Display results
+print(aic_values)
+
+
+# Compare models using AIC
+aic_values <- AICtab(models, weights = TRUE)
+
+# Display results
+print(aic_values)
+
+
+
 ```
-
-
-## Fit Monod equation with maximum likelihood
-
-```{r} 
-# Starting values for fitting Monod maximum likelihood
-V = 2.5 #85000
-K = 1 #0.025
-Z = 1 #100
-
-fit <- mle2(cells[,9] ~ dnorm(mean = v * cells[,3] / (k + cells[,3]), sd = z), 
-    start = list(v = V, k = K, z = Z), data = cells)
-
-#Coefficients:
-#  Estimate Std. Error z value     Pr(z)    
-# v 2.320048   0.188245 12.3246 < 2.2e-16 ***
-# k 2.108313   0.391885  5.3799 7.452e-08 ***
-# z 0.163521   0.018058  9.0555 < 2.2e-16 ***
-# ---
-# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
-# -2 log L: -32.13305 
-```
-
-
-# Plot data and function
-
-```{r}
-png(filename="~/GitHub/Rpf/figures/Fig3.png",
-    width = 1200, height = 1200, res = 96*2) 
-
-plot.new()
-par(mar = c(7, 7, 5, 7))
-
-plot(cells[,3], cells[,9], xlim = c(-1, 7), 
-     ylim = c(-0.2, 2.5), type = "p", 
-     pch = 22, bg = "grey", col = "black", cex = 2, ylab = "", xlab = "", 
-     cex.lab = 1.5, las = 1, lwd = 2, yaxt = "n", xaxt = "n")
-box(lwd=2)
-
-# Add ticks and tick labels
-axis(side = 2, lwd.ticks = 2, las = 1, cex.axis = 1.25, 
-   labels = c(0, 1, 2), at = c(0, 1, 2))
-
-axis(side = 4, labels = F, lwd.ticks = 2, 
-   at = c(0, 1, 2))
-
-axis(side = 1, lwd.ticks = 2, cex.axis = 1.25, las = 1, mgp = c(3, 1, 0),
-    labels = c(0, 2, 4, 6), at = c(0, 2, 4, 6))
-
-axis(side = 3, labels = F, lwd.ticks = 2, las = 1, cex.axis = 1.25, 
-   at = c(0, 2, 4, 6))
-
-mtext(expression(paste('Rpf (', mu, 'M)')), side = 1, outer = TRUE, 
-      cex = 1.5, line = -4, adj = 0.5)
-      
-mtext(expression(paste('Biomass (OD 600)')), 
-      side = 2, outer = TRUE, cex = 1.5, line = -3.5, adj = 0.55)
-
-# Plot function
-curve((coef(fit)[[1]] * x) / (coef(fit)[[2]] + x), from = 0.05, 
-      to = 6, add = TRUE, lty = 2, lwd = 2.5)
-
-# Close Plot Device
-dev.off()
-graphics.off()
-
-# Show Plot
-img <- readPNG("~/GitHub/Rpf/figures/Fig3.png")
-grid.raster(img)
-```
-
