@@ -1,0 +1,387 @@
+---
+title: "Germination fluidics"
+author: "Jay T. Lennon"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+header-includes:
+   - \usepackage{array}
+output: pdf_document
+geometry: margin=2.54cm
+---
+Distribution of events following virospore germination
+
+## Clear workspace and set directory
+
+```{r setup}
+rm(list = ls())
+getwd()
+setwd("~/GitHub/viro.fluidics/")
+```
+
+## Load packages and functions
+
+```{r}
+require("png")
+require("dplyr")
+require("grid")
+#require("plyr")
+#require("tidyverse")
+require("bbmle")
+require("evd")
+```
+
+# Data
+```{r}
+# Input the dataset (replace this with your actual data or read from a file)
+data <- read.table(header = TRUE, text = "
+treat germ
+infect 70
+infect 26
+infect 19
+infect 68
+infect 19
+infect 194
+infect 19
+infect 195
+infect 23
+infect 48
+infect 24
+infect 24
+infect 20
+infect 12
+infect 42
+infect 6
+infect 36
+infect 61
+infect 18
+infect 21
+infect 149
+infect 88
+infect 44
+infect NA
+infect 52
+infect 60
+infect 35
+infect 271
+infect 20
+infect 31
+infect 103
+infect 88
+infect 21
+infect 24
+infect 108
+infect 22
+infect 102
+infect 16
+infect 50
+infect 105
+infect 84
+infect 176
+infect 14
+infect 39
+infect 33
+infect 23
+infect 17
+infect 27
+infect 39
+infect 31
+infect 32
+infect 20
+infect 21
+infect 153
+infect 49
+infect 49
+infect 203
+infect 33
+infect 24
+infect 64
+infect 31
+infect 28
+infect 26
+infect 120
+infect 24
+infect NA
+infect 65
+infect 30
+infect 28
+infect 25
+infect 119
+infect 24
+infect NA
+infect 23
+infect 15
+infect 19
+infect 366
+infect 35
+infect 73
+infect 67
+infect 48
+infect 57
+infect 49
+infect 52
+infect 15
+infect 21
+infect 380
+infect 107
+infect 111
+infect 24
+infect 352
+infect NA
+infect 86
+infect 31
+infect 21
+infect 201
+infect 23
+infect 32
+control 84
+control NA
+control NA
+control NA
+control 165
+control NA
+control 30
+control NA
+control 183
+control NA
+control 4
+control 44
+control 30
+control 19
+control 12
+control 6
+control 76
+control 4
+control 90
+control NA
+control 4
+control 165
+control 188
+control 30
+control 32
+control 128
+control 39
+control 36
+control 126
+control 19
+control 159
+control 98
+control NA
+control 48
+control 103
+control 4
+control 20
+control 43
+control 109
+control 102
+control 7
+control NA
+control 140
+control 64
+control 36
+control 116
+control 79
+control 20
+control 39
+control 32
+control 139
+control 28
+control NA
+control 53
+control 9
+control 25
+control 54
+control 10
+control 41
+control 66
+control 188
+control 38
+control 118
+control 52
+control 55
+control NA
+control 101
+control 35
+control 12
+control 173
+control 211
+control 5
+control 25
+control 231
+control 149
+control NA
+control 217
+control 134
+control 50
+control 189
+control 70
+control 117
+")
+
+# Remove rows with NA values
+data <- na.omit(data)
+```
+
+# Specify model
+```{r}
+gev_likelihood_treatment <- function(shape, location, scale, treat_shape = 0, treat_location = 0, treat_scale = 0) {
+  data$treat_effect <- ifelse(data$treat == "infect", 1, 0)
+  shape_eff <- shape + treat_shape * data$treat_effect
+  location_eff <- location + treat_location * data$treat_effect
+  scale_eff <- scale + treat_scale * data$treat_effect
+  
+  # Check for invalid parameters
+  if (any(scale_eff <= 0)) return(Inf)
+  max_germ <- max(data$germ, na.rm = TRUE)
+  if (any(shape_eff < 0 & max_germ > location_eff + scale_eff / abs(shape_eff))) return(Inf)
+  
+  # Compute log-likelihood safely
+  ll <- tryCatch({
+    sum(mapply(
+      function(x, loc, sc, sh) {
+        if (sc <= 0) return(Inf)
+        dgev(x, shape = sh, loc = loc, scale = sc, log = TRUE)
+      },
+      x = data$germ,
+      loc = location_eff,
+      sc = scale_eff,
+      sh = shape_eff
+    ), na.rm = TRUE)
+  }, error = function(e) Inf)
+  
+  if (!is.finite(ll)) return(Inf)
+  -ll
+}
+```
+
+
+# Bounds
+```{r}
+# Adjust bounds for each model
+base_lower <- list(shape = -0.2, location = 10, scale = 5)
+base_upper <- list(shape = 0.2, location = 300, scale = 100)
+
+# Extended bounds for treatment effects
+treat_lower <- c(base_lower, treat_shape = -0.1, treat_location = -50, treat_scale = -20)
+treat_upper <- c(base_upper, treat_shape = 0.1, treat_location = 50, treat_scale = 20)
+```
+
+
+# Fit models
+```{r}
+# Fit models
+models <- list(
+  "Null Model" = mle2(
+    gev_likelihood_treatment,
+    start = list(shape = 0.05, location = median(data$germ), scale = sd(data$germ)),
+    method = "L-BFGS-B",
+    lower = base_lower,
+    upper = base_upper
+  ),
+  "Shape Affected" = mle2(
+    gev_likelihood_treatment,
+    start = list(shape = 0.05, location = median(data$germ), scale = sd(data$germ), treat_shape = 0),
+    method = "L-BFGS-B",
+    lower = treat_lower,
+    upper = treat_upper
+  ),
+  "Location Affected" = mle2(
+    gev_likelihood_treatment,
+    start = list(shape = 0.05, location = median(data$germ), scale = sd(data$germ), treat_location = 0),
+    method = "L-BFGS-B",
+    lower = treat_lower,
+    upper = treat_upper
+  ),
+  "Scale Affected" = mle2(
+    gev_likelihood_treatment,
+    start = list(shape = 0.05, location = median(data$germ), scale = sd(data$germ), treat_scale = 0),
+    method = "L-BFGS-B",
+    lower = treat_lower,
+    upper = treat_upper
+  ),
+  "All Parameters Affected" = mle2(
+    gev_likelihood_treatment,
+    start = list(shape = 0.05, location = median(data$germ), scale = sd(data$germ), treat_shape = 0, treat_location = 0, treat_scale = 0),
+    method = "L-BFGS-B",
+    lower = treat_lower,
+    upper = treat_upper
+  )
+)
+```
+
+# Model fiting
+```{r}
+AICtab(models, weights = TRUE)
+
+summary(models[["Null Model"]])
+
+summary(models[["Shape Affected"]])
+
+# Extract model statistics
+model_stats <- data.frame(
+  Model = c("Null", "Shape", "Location", "Scale", "Full"),
+  LogLikelihood = sapply(models, logLik),  # Extract log-likelihood
+  AIC = sapply(models, AIC),               # Extract AIC
+  df = sapply(models, function(x) length(coef(x)))  # Extract number of parameters
+)
+
+# Sort by AIC (lowest is better)
+model_stats <- model_stats[order(model_stats$AIC), ]
+print(model_stats)
+
+# Perform LRT between models
+lrt_shape <- anova(models[["Null Model"]], models[["Shape Affected"]])
+lrt_location <- anova(models[["Null Model"]], models[["Location Affected"]])
+lrt_scale <- anova(models[["Null Model"]], models[["Scale Affected"]])
+lrt_full <- anova(models[["Null Model"]], models[["All Parameters Affected"]])
+
+# Print results
+print(lrt_shape)
+print(lrt_location)
+print(lrt_scale)
+print(lrt_full)
+
+comparison_table <- data.frame(
+  Model = c("Null", "Shape Affected", "Location Affected", "Scale Affected", "All Parameters Affected"),
+  LogLikelihood = sapply(models, logLik),
+  AIC = sapply(models, AIC),
+  DeltaAIC = sapply(models, AIC) - min(sapply(models, AIC)),  # Difference from best model
+  AICWeight = exp(-0.5 * (sapply(models, AIC) - min(sapply(models, AIC)))) / 
+    sum(exp(-0.5 * (sapply(models, AIC) - min(sapply(models, AIC)))))  # Relative likelihood
+)
+
+# Sort by AIC
+comparison_table <- comparison_table[order(comparison_table$AIC), ]
+print(comparison_table)
+
+anova(models[["Null Model"]], models[["All Parameters Affected"]])
+anova(models[["Shape Affected"]], models[["All Parameters Affected"]])
+anova(models[["Scale Affected"]], models[["All Parameters Affected"]])
+anova(models[["Location Affected"]], models[["All Parameters Affected"]])
+```
+
+# Make figure
+```{r}
+pdf("GEV_Distributions.pdf", width = 8, height = 6)
+ggplot() +
+  geom_histogram(
+    data = data, aes(x = germ, y = ..density.., fill = Treatment),
+    bins = 30, position = "identity", alpha = 0.5
+  ) +
+  geom_line(
+    data = plot_data, aes(x = x, y = density, color = Treatment),
+    linewidth = 1.2
+  ) +
+  labs(
+    title = "Observed Data and Fitted GEV Distributions",
+    x = "Germ Values",
+    y = "Density",
+    fill = "Treatment",
+    color = "Treatment"
+  ) +
+  theme_minimal()
+dev.off()
+
+# View the saved PDF
+system("open GEV_Distributions.pdf")  # For macOS, use "xdg-open" for Linux or double-click the file manually
+
+
+```
