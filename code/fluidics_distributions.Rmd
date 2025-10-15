@@ -1,0 +1,351 @@
+---
+title: "Virofluidics data analysis"
+author: "Joy O'Brien"
+date: "2025-04-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+setwd("~/GitHub/viro.fluidics")
+```
+
+```{r}
+library(dplyr)
+# Read in data
+fluid <- read.csv("~/GitHub/viro.fluidics/data/fluidics.csv", header = TRUE, sep = ",", na.strings = "N/A")
+
+# Remove inconclusive from spore fate
+fluid <- fluid %>%
+  filter(spore.fate != "Inconclusive")
+
+
+```
+
+1. Visualzing the distribution of outcomes
+```{r}
+# Load libraries
+library(ggplot2) # For plotting
+library(dplyr)  # For filtering data
+
+# Filter data for infected treatment
+infected_data <- fluid %>% filter(treat == "infect")
+
+# Filter data for uninfected treatment
+control_data <- fluid %>% filter(treat == "control")
+
+# Visualizing outcomes via boxplot
+library(ggplot2)
+library(dplyr)
+
+# Summarize data: count occurrences of each outcome for each treatment
+fluid_summary <- fluid %>%
+  group_by(treat, spore.fate) %>%
+  summarise(count = n(), .groups = "drop")
+
+fluid_summary <- fluid_summary %>%
+  mutate(treat = recode(treat, "control" = "Uninfected", "infect" = "Infected"))
+
+# Set the order of facets
+fluid_summary$treat <- factor(fluid_summary$treat, levels = c("Uninfected", "Infected"))
+
+# Create a faceted bar plot
+ggplot(fluid_summary, aes(x = spore.fate, y = count, fill = spore.fate)) +
+  geom_bar(stat = "identity", alpha = 0.8, color = "black") +
+  facet_wrap(~treat) +
+  theme_classic() +
+  labs(title = "",
+       x = "Outcome",
+       y = "Count") +
+  scale_fill_manual(values = c("Lysed" = "#E63946", "Divided" = "#457B9D", "Stayed" = "#2A9D8F")) +
+  theme(text = element_text(size = 16),
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        legend.position = "none")
+
+
+
+```
+2. Looking at how germination time is distributed among infected and uninfected endospores
+```{r}
+# Let's look at the distribution of germination time in uninfected vs infected cells
+library(ggplot2)
+library(dplyr)
+
+# Filter for the infected treatment
+infected_data <- fluid %>% filter(treat == "infect")
+
+# Plot histogram of germination time for infected cells
+ggplot(infected_data, aes(x = germ.time)) +
+  geom_histogram(binwidth = 5, fill = "#E63946", color = "black", alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Distribution of Germination Time (Infected Treatment)",
+       x = "Germination Time",
+       y = "Frequency") +
+  theme(text = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# Uninfected data
+control_data <- fluid %>% filter(treat == "control")
+ggplot(control_data, aes(x = germ.time)) +
+  geom_histogram(binwidth = 5, fill = "#E63946", color = "black", alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Distribution of Germination Time (Infected Treatment)",
+       x = "Germination Time",
+       y = "Frequency") +
+  theme(text = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+```{r}
+# Look at time to first division for the uninfected cells
+control_data$div.frame <- as.numeric(as.character(control_data$div.frame))
+
+control_data$div.time <- (control_data$div.frame * 2) - 2
+
+#ggplot(control_data, aes(x = div.time) +
+ # geom_histogram(binwidth = 5, fill = "#E63946", color = "black", alpha = 0.7) +
+  #theme_minimal() +
+  #labs(title = "",
+       #x = " Time of First Division",
+      # y = "Frequency") +
+  #theme(text = element_text(size = 14),
+        #plot.title = element_text(hjust = 0.5, face = "bold")
+
+# Calculate time to division for uninfected treatment only and make a new dataset
+control_data <- control_data %>%
+  mutate(time_to_div = ifelse(treat == "infect" & !is.na(lyse.time) & !is.na(germ.time), 
+                                lyse.time - germ.time, NA))
+
+control_data <- control_data %>%
+  mutate(time_to_div = div.time - germ.time)
+summary(control_data$time_to_div)
+```
+
+
+3. Test to see if there is a significant difference in germination time (I don't think there is)
+```{r}
+# Filter data for control and infected groups
+control_data <- fluid %>% filter(treat == "control") %>% pull(germ.time)
+infected_data <- fluid %>% filter(treat == "infect") %>% pull(germ.time)
+
+# Check if the data is normally distributed 
+
+shapiro.test(control_data) # does not follow normal distribution 
+shapiro.test(infected_data) # does not follow normal distribution
+
+# Since it is not normally distributed, need to use wilcoxon rank sum test
+# Perform wilcoxon test
+wilcox.test(germ.time ~ treat, data = fluid)
+
+# There is no significant difference in germination time between infected and uninfected spores
+
+```
+
+4. Visualize both uninfected and infected germination time plots (like Jay's code)
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Combine data into a dataframe
+germ_data <- data.frame(
+  germ_time = c(control_data, infected_data),
+  treatment = rep(c("Uninfected", "Infected"), times = c(length(control_data), length(infected_data)))
+)
+
+# Filter out values ≤5 before plotting density
+germ_data_filtered <- germ_data %>%
+  filter(germ_time > 5)
+
+
+
+# Filter out values ≤5 before plotting density
+germ_data_filtered <- germ_data %>%
+  filter(germ_time > 5)
+
+# Plot histogram with transparency
+ggplot(germ_data_filtered, aes(x = germ_time, fill = treatment, color = treatment)) +
+  geom_histogram(aes(y = ..density..), bins = 20, alpha = 0.2, position = "identity") +  # Lower alpha for transparency
+  geom_density(lwd = 1.2, alpha = 0.7) +  # Semi-transparent density curves
+  scale_fill_manual(values = c("Uninfected" = "#457B9D", "Infected" = "#E63946")) +
+  scale_color_manual(values = c("Uninfected" = "#457B9D", "Infected" = "#E63946")) +
+  labs(title = "Distribution of Germination Time by Treatment",
+       x = "Germination Time (min)", 
+       y = "Density") +
+  theme_minimal() +
+  theme(text = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5, face = "bold"))
+
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Combine data into a dataframe
+germ_data <- data.frame(
+  germ_time = c(control_data, infected_data),
+  treatment = rep(c("Uninfected", "Infected"), times = c(length(control_data), length(infected_data)))
+)
+
+# Filter out values ≤5 before plotting density
+germ_data_filtered <- germ_data %>%
+  filter(germ_time > 5)
+
+germ_data_filtered$treatment <- factor(germ_data_filtered$treatment, levels = c("Uninfected", "Infected"))
+
+# Plot histograms side by side with facet_wrap
+ggplot(germ_data_filtered, aes(x = germ_time, fill = treatment)) +
+  geom_histogram(aes(y = ..density..), bins = 20, alpha = 0.5, color = "black") +
+  #geom_density(color = "black", lwd = 1.2, alpha = 0.7) +  
+  facet_wrap(~treatment) +  # Facet by treatment (side by side)
+  scale_fill_manual(values = c("Uninfected" = "#457B9D", "Infected" = "#E63946")) +
+  labs(title = "",
+       x = "Germination Time (min)", 
+       y = "Frequency") +
+  theme_classic() +
+  theme(text = element_text(size = 16),
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        legend.position = "none")  # Remove legend since facets label treatments
+
+```
+```{r}
+ggplot(germ_data_filtered, aes(x = germ_time, fill = treatment)) +
+  geom_histogram(bins = 20, alpha = 0.5, color = "black") +
+  facet_wrap(~treatment) +
+  scale_fill_manual(values = c("Uninfected" = "#457B9D", "Infected" = "#E63946")) +
+  labs(title = "",
+       x = "Germination Time (min)", 
+       y = "Frequency") +
+  theme_classic() +
+  theme(text = element_text(size = 16),
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        legend.position = "none")
+
+```
+
+```{r}
+# Histogram of lyse time
+library(ggplot2)
+library(dplyr)
+# Subset lysis data
+lysis_data <- fluid %>%
+  filter(treat == "infect", !is.na(lyse.time))
+
+ggplot(lysis_data, aes(x = lyse.time)) +
+  geom_histogram(bins = 20, fill = "#E63946", color = "black", alpha = 0.5) +
+  geom_density(color = "black", lwd = 1.2, alpha = 0.7) +  # Overlay density curve
+  labs(title = "",
+       x = "Lysis Time (min)", 
+       y = "Frequency") +
+  theme_minimal() +
+  theme(text = element_text(size = 16),
+        plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+
+
+5. Calculate time to lysis from germination time 
+```{r}
+# Calculate time to lysis for infected treatment only and make a new dataset
+fluid <- fluid %>%
+  mutate(time_to_lysis = ifelse(treat == "infect" & !is.na(lyse.time) & !is.na(germ.time), 
+                                lyse.time - germ.time, NA))
+
+fluid_infected <- fluid %>%
+  filter(treat == "infect" & !is.na(lyse.time) & !is.na(germ.time)) %>%
+  mutate(time_to_lysis = lyse.time - germ.time)
+
+summary(fluid_infected)
+```
+
+
+```{r}
+# Mean Time to division in uninfected spores is 249.4 min
+# Mean time to lysis in infected spores 278.1 min
+# View the updated data
+head(fluid)
+head(fluid_infected)
+
+# Plot the histogram of time to lysis for the infected treatment
+ggplot(fluid_infected, aes(x = time_to_lysis)) +
+  geom_bar(binwidth = 1, fill = "#E63946", color = "black", alpha = 0.7) +  
+  labs(title = "",
+       x = "Time to Lysis (minutes)",
+       y = "Frequency") +
+  theme_classic() +
+  theme(text = element_text(size = 16))
+```
+```{r}
+# Plotting with the line to cell division
+
+
+ggplot(fluid_infected, aes(x = time_to_lysis)) +
+  geom_histogram(binwidth = 1, fill = "#E63946", color = "black", alpha = 0.7) +  
+  geom_vline(aes(xintercept = 249.4, linetype = "Median cell division"), 
+             color = "black", linewidth = 1) +
+  scale_linetype_manual(name = "", values = c("Mean cell division" = "dashed")) +
+  labs(title = "",
+       x = "Time to Lysis (minutes)",
+       y = "Frequency") +
+  theme_classic() +
+  theme(text = element_text(size = 16),
+        legend.position = "top")
+
+```
+```{r}
+# Checking to see if there is a significant difference in time to division vs time to lysis 
+shapiro.test(fluid_infected$time_to_lysis) # not normal
+shapiro.test(control_data$time_to_div) # Normal 
+
+# Since once group is not normally distributed, we need to use the wilcoxon rank sum test aka Mann-Whitney U test 
+wilcox.test(control_data$time_to_div, fluid_infected$time_to_lysis)
+
+```
+
+
+```{r}
+# Looks normal 
+# Check normality of time to lysis for infected treatment
+shapiro.test(fluid_infected$time_to_lysis) # the data is not normally distributed
+
+# Calculate kertosis
+#install.packages("e1071")
+
+# Load package
+library(e1071)
+
+# Calculate kurtosis
+kurtosis_value <- kurtosis(fluid_infected$time_to_lysis)
+print(kurtosis_value)
+
+library(ggplot2)
+
+ggplot(fluid_infected, aes(x = time_to_lysis)) +
+  geom_histogram(aes(y = ..density..), binwidth = 1, fill = "red", color = "black", alpha = 0.7) +
+  geom_density(color = "black", lwd = 1.2, alpha = 0.7) +  
+  labs(title = "Time to Lysis After Germination (Infected)",
+       x = "Time to Lysis (minutes)",
+       y = "Density") +
+  theme_minimal() +
+  theme(text = element_text(size = 14))
+
+qqnorm(fluid_infected$time_to_lysis, main = "Q-Q Plot of Time to Lysis")
+qqline(fluid_infected$time_to_lysis, col = "red")
+
+
+```
+```{r}
+# Running new, clean stats for dissertation proposal (will come back and clean later)
+# Check for normality
+shapiro.test(fluid_infected$time_to_lysis) # the data is not normally distributed
+shapiro.test(control_data$time_to_div) # this data is normally distributed
+
+# Checking to see if variances are similar
+var.test(fluid_infected$time_to_lysis, control_data$time_to_div) # p is significant, variances are not equal, the infected groups variance is significantly smaller, need to use welchs t test
+
+t.test(fluid_infected$time_to_lysis, control_data$time_to_div, var.equal = FALSE)
+
+```
+
+

@@ -195,7 +195,7 @@ event,treat,series,spore.num,germ.frame,germ.time,lyse.frame,lyse.time,div.frame
 194,control,9,14,242,482,N/A,N/A,N/A,N/A,Inconclusive
 195,control,9,15,N/A,N/A,N/A,N/A,N/A,N/A,Stayed
 197,control,9,16,162,322,N/A,N/A,N/A,N/A,Inconclusive
-198,control,10,1,N/A,N/A,N/A,N/A,N/A,N/A ,STayed
+198,control,10,1,N/A,N/A,N/A,N/A,N/A,N/A ,Stayed
 199,control,10,2,7,12,N/A,N/A,126,94.477,Divided
 200,control,10,3,44,86,N/A,N/A,148,47.158,Divided
 201,control,10,4,29,56,N/A,N/A,N/A,N/A,Inconclusive
